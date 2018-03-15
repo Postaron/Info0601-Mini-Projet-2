@@ -12,6 +12,7 @@
 #include "constantes.h"
 
 int X = 0, N = 0, nbrConnected = 0;
+pid_t* pidTabCo = NULL;
 
 void demarrageNcurses(WINDOW** fenetre, WINDOW** connexions, WINDOW** messages) {
 	ncurses_error_null((*fenetre = newwin(0, 0, 0, 0)), "Erreur, creation fenetre principale.\n");
@@ -29,15 +30,30 @@ void demarrageNcurses(WINDOW** fenetre, WINDOW** connexions, WINDOW** messages) 
 }
 
 void gestionnaire_connexions(int tubeAno[2]) {
+	int oldNbrConnected = nbrConnected;
 	struct sigaction actionConnexion, actionINT;
-	actionConnexion.sa_flags = SA_SIGINFO;
-	actionConnexion.sa_sigaction = handler_connexion;
+	reponse_t reponse;
+	close(tubeAno[0]);
+	actionConnexion.sa_flags = SA_SIGINFO, actionINT.sa_flags = SA_SIGINFO;
+	actionConnexion.sa_sigaction = handler_connexion, actionINT.sa_sigaction = handler_connexion_int;
+	sigaction(SIGINT, &actionINT, NULL);
 	sigaction(SIGRTMIN, &actionConnexion, NULL);
-	pause();
+	while (N > 0) { /* N > 0, pas de signal SIGINT reçu (voir handler). */
+		pause();
+		if (oldNbrConnected < nbrConnected && N > 0) {
+			reponse.connexion = CONNEXION;
+			reponse.pid_processus = getpid();
+			reponse.reponse_calcul = 0;
+			ncurses_error_errno((int) write(tubeAno[1], &reponse, sizeof(reponse_t)));
+		}
+	}
+	free(pidTabCo);
+	exit(EXIT_SUCCESS);
 }
 
-void gestionnaire_taches(int tubeAno[2], int N) {
+void gestionnaire_taches(int tubeAno[2]) {
 	struct sigaction action;
+	close(tubeAno[0]);
 	action.sa_flags = SA_SIGINFO;
 }
 
@@ -99,10 +115,12 @@ int main(int argc, char* argv[]) {
 	wmove(connexions, 1, 1);
 	wrefresh(connexions);
 	if ((pid_gco = fork()) == 0) {
+		ncurses_error_null((pidTabCo = (pid_t*) calloc((size_t) N, sizeof(pid_t))), "Erreur allocation tableau PID.\n");
+
 		gestionnaire_connexions(tubeAno);
 	}
 	if ((pid_gtache = fork()) == 0) {
-		gestionnaire_taches(tubeAno, N);
+		gestionnaire_taches(tubeAno);
 	}
 	close(tubeAno[1]);
 	while ((carac = getch()) != KEY_F(2)) {
@@ -110,7 +128,7 @@ int main(int argc, char* argv[]) {
 		if (pid_gco == reponse.pid_processus) {
 			/**
 			 * TODO
-			 * NCURSE : problème suivant : un qui se connecte puis se déconnecte, incohérence des couleurs. Fais chier.
+			 * NCURSE : problème suivant : un qui se connecte puis se déconnecte, incohérence des couleurs.
 			 */
 			switch (reponse.connexion) {
 				case CONNEXION:

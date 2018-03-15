@@ -3,5 +3,6 @@
 
 #define CONNEXION 1
 #define DECONNEXION 0
+#define SHUTDOWN 3
 
 #endif /*MINI_PROJET_2_CONSTANTES_H*/
