@@ -3,11 +3,15 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <ncurses.h>
 #include <signal.h>
+#include <ncurses.h>
 #include "ncurses.h"
 #include "tools_error.h"
-#include "gestionnaires.h"
+#include "requete_reponse.h"
+#include "handlers.h"
+#include "constantes.h"
+
+int X = 0, N = 0, nbrConnected = 0;
 
 void demarrageNcurses(WINDOW** fenetre, WINDOW** connexions, WINDOW** messages) {
 	ncurses_error_null((*fenetre = newwin(0, 0, 0, 0)), "Erreur, creation fenetre principale.\n");
@@ -24,17 +28,37 @@ void demarrageNcurses(WINDOW** fenetre, WINDOW** connexions, WINDOW** messages) 
 
 }
 
+void gestionnaire_connexions(int tubeAno[2]) {
+	struct sigaction actionConnexion, actionINT;
+	actionConnexion.sa_flags = SA_SIGINFO;
+	actionConnexion.sa_sigaction = handler_connexion;
+	sigaction(SIGRTMIN, &actionConnexion, NULL);
+	pause();
+}
+
+void gestionnaire_taches(int tubeAno[2], int N) {
+	struct sigaction action;
+	action.sa_flags = SA_SIGINFO;
+}
+
 /**
  * argv[] = X(nombre entier impair pour nbr chiffre pour nombre premier), N(nombre max de consommateurs),
  * 			nom_tube_tâches, nom_tube_résultat
  * @return
  */
 int main(int argc, char* argv[]) {
-	int X = 0, N = 0, tubeAno[2], carac, requete = 0, i;
+	int tubeAno[2], carac, i;
+
 	char* tubeTache = NULL, * tubeResultat = NULL;
+
 	WINDOW* fenetre = NULL, * connexions = NULL, * messages = NULL;
+
 	pid_t pid_gco = 0, pid_gtache = 0;
-	siginfo_t siginfo;
+
+	struct sigaction action;
+
+	reponse_t reponse = {0, 0, 0};
+
 	if (argc != 5) {
 		fprintf(stderr, "Erreur, nombre d'argument invalide\n");
 		exit(EXIT_FAILURE);
@@ -63,20 +87,48 @@ int main(int argc, char* argv[]) {
 	 * TODO
 	 * Affichage des connexions (uniquement l'interface)
 	 */
+	action.sa_handler = handler_sigint;
+	sigaction(SIGINT, &action, NULL);
 	wmove(connexions, 1, 1);
 	for (i = 0; i < N; ++i) {
 		wattron(connexions, COLOR_PAIR(2));
 		ncurses_error_err(wprintw(connexions, " "), "Erreur affichage des connexions.\n");
+		wattroff(connexions, COLOR_PAIR(2));
+		ncurses_error_err(wprintw(connexions, " "), "Erreur affichage des connexions.\n");
 	}
+	wmove(connexions, 1, 1);
 	wrefresh(connexions);
-	/*pid_gco = gestionnaire_connexion(tubeAno);
-	pid_gtache = gestionnaire_taches(tubeAno);
-	*/while ((carac = getch()) != KEY_F(2)) {
-		/*if (pid_gco == siginfo.si_pid) {
+	if ((pid_gco = fork()) == 0) {
+		gestionnaire_connexions(tubeAno);
+	}
+	if ((pid_gtache = fork()) == 0) {
+		gestionnaire_taches(tubeAno, N);
+	}
+	close(tubeAno[1]);
+	while ((carac = getch()) != KEY_F(2)) {
+		ncurses_error_errno((int) read(tubeAno[0], &reponse, sizeof(reponse_t)));
+		if (pid_gco == reponse.pid_processus) {
+			/**
+			 * TODO
+			 * NCURSE : problème suivant : un qui se connecte puis se déconnecte, incohérence des couleurs. Fais chier.
+			 */
+			switch (reponse.connexion) {
+				case CONNEXION:
+					wattron(connexions, COLOR_PAIR(3));
+					ncurses_error_err(waddch(connexions, ' '), "Erreur changement couleur connexion.\n");
+					wattroff(connexions, COLOR_PAIR(3));
+					ncurses_error_err(waddch(connexions, ' '), "Erreur changement couleur connexion.\n");
+					break;
+				case DECONNEXION:
+					break;
+				default:
+					ncurses_error_err(ERR, "Erreur, valeur de connexion invalide.\n");
+					break;
+			}
+		} else if (pid_gtache == reponse.pid_processus) {
 
-		} else if (pid_gtache == siginfo.si_pid) {
-
-		}*/
+		} else
+			ncurses_error_err(ERR, "Erreur lecture du tube : aucun PID correspondant.\n");
 	}
 	ncurses_stopper();
 	delwin(messages);
