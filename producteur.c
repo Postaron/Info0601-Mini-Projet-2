@@ -58,8 +58,9 @@ void gestionnaire_connexions(int tubeAno[2]) {
 
 void gestionnaire_taches(int tubeAno[2], char* ECRITURE, char* LECTURE) {
 	int tubeTache, tubeResultat;
-	unsigned long int resultat, tache = puissance(10, X), fin = puissance(10, X + 1);
+	unsigned long int tache = puissance(10, X), fin = puissance(10, X + 1);
 	int attente = 0;
+	reponse_t reponse;
 	struct sigaction actionINT;
 	actionINT.sa_handler = handler_tache;
 	sigaction(SIGINT, &actionINT, NULL);
@@ -75,8 +76,9 @@ void gestionnaire_taches(int tubeAno[2], char* ECRITURE, char* LECTURE) {
 			tache++;
 		}
 		while (attente > 500 || bool_tache == FALSE) {
-			ncurses_error_errno((int) read(tubeResultat, &resultat, sizeof(unsigned long int)));
-			ncurses_error_errno((int) write(tubeAno[1], &resultat, sizeof(unsigned long int)));
+			ncurses_error_errno((int) read(tubeResultat, &reponse, sizeof(reponse_t)));
+			reponse.pid_processus = getpid();
+			ncurses_error_errno((int) write(tubeAno[1], &reponse, sizeof(reponse_t)));
 			attente--;
 		}
 	}
