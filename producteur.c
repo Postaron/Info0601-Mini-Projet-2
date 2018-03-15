@@ -4,15 +4,19 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <signal.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <ncurses.h>
 #include "ncurses.h"
 #include "tools_error.h"
 #include "requete_reponse.h"
 #include "handlers.h"
 #include "constantes.h"
+#include "my_math.h"
 
 int X = 0, N = 0, nbrConnected = 0;
 pid_t* pidTabCo = NULL;
+bool bool_tache = FALSE;
 
 void demarrageNcurses(WINDOW** fenetre, WINDOW** connexions, WINDOW** messages) {
 	ncurses_error_null((*fenetre = newwin(0, 0, 0, 0)), "Erreur, creation fenetre principale.\n");
@@ -47,14 +51,43 @@ void gestionnaire_connexions(int tubeAno[2]) {
 			ncurses_error_errno((int) write(tubeAno[1], &reponse, sizeof(reponse_t)));
 		}
 	}
+	close(tubeAno[1]);
 	free(pidTabCo);
 	exit(EXIT_SUCCESS);
 }
 
-void gestionnaire_taches(int tubeAno[2]) {
-	struct sigaction action;
-	close(tubeAno[0]);
-	action.sa_flags = SA_SIGINFO;
+void gestionnaire_taches(int tubeAno[2], char* ECRITURE, char* LECTURE) {
+	int tubeTache, tubeResultat;
+	unsigned long int resultat, tache = puissance(10, X), fin = puissance(10, X + 1);
+	int attente = 0;
+	struct sigaction actionINT;
+	actionINT.sa_handler = handler_tache;
+	sigaction(SIGINT, &actionINT, NULL);
+	ncurses_error_errno(close(tubeAno[0]));
+	ncurses_error_errno(mkfifo(ECRITURE, S_IRUSR | S_IRGRP | S_IWUSR | S_IWGRP));
+	ncurses_error_errno(mkfifo(LECTURE, S_IRUSR | S_IRGRP | S_IWUSR | S_IWGRP));
+	ncurses_error_errno(tubeTache = open(ECRITURE, O_WRONLY));
+	ncurses_error_errno(tubeResultat = open(LECTURE, O_RDONLY));
+	while (tache < fin || bool_tache == FALSE) {
+		while ((attente < 1000 && tache < fin) || bool_tache == FALSE) {
+			ncurses_error_errno((int) write(tubeTache, &tache, sizeof(unsigned long int)));
+			attente++;
+			tache++;
+		}
+		while (attente > 500 || bool_tache == FALSE) {
+			ncurses_error_errno((int) read(tubeResultat, &resultat, sizeof(unsigned long int)));
+			ncurses_error_errno((int) write(tubeAno[1], &resultat, sizeof(unsigned long int)));
+			attente--;
+		}
+	}
+	/*ncurses_error_errno((int) read(tubeResultat, &resultat, sizeof(unsigned long int)));
+	ncurses_error_errno((int) write(tubeAno[1], &resultat, sizeof(unsigned long int)));*/
+	ncurses_error_errno(close(tubeAno[1]));
+	ncurses_error_errno(close(tubeTache));
+	ncurses_error_errno(close(tubeResultat));
+	ncurses_error_errno(unlink(ECRITURE));
+	ncurses_error_errno(unlink(LECTURE));
+	exit(EXIT_SUCCESS);
 }
 
 /**
@@ -65,7 +98,7 @@ void gestionnaire_taches(int tubeAno[2]) {
 int main(int argc, char* argv[]) {
 	int tubeAno[2], carac, i;
 
-	char* tubeTache = NULL, * tubeResultat = NULL;
+	char* tubeTache = NULL, * tubeResultat = NULL, * string = NULL;
 
 	WINDOW* fenetre = NULL, * connexions = NULL, * messages = NULL;
 
@@ -116,13 +149,14 @@ int main(int argc, char* argv[]) {
 	wrefresh(connexions);
 	if ((pid_gco = fork()) == 0) {
 		ncurses_error_null((pidTabCo = (pid_t*) calloc((size_t) N, sizeof(pid_t))), "Erreur allocation tableau PID.\n");
-
 		gestionnaire_connexions(tubeAno);
 	}
 	if ((pid_gtache = fork()) == 0) {
-		gestionnaire_taches(tubeAno);
+		gestionnaire_taches(tubeAno, tubeTache, tubeResultat);
 	}
 	close(tubeAno[1]);
+	ncurses_error_null((string = (char*) malloc(((unsigned) X * sizeof(char)) + 1)),
+					   "Erreur allocation chaine de caractère réponse.\n");
 	while ((carac = getch()) != KEY_F(2)) {
 		ncurses_error_errno((int) read(tubeAno[0], &reponse, sizeof(reponse_t)));
 		if (pid_gco == reponse.pid_processus) {
@@ -144,11 +178,14 @@ int main(int argc, char* argv[]) {
 					break;
 			}
 		} else if (pid_gtache == reponse.pid_processus) {
-
+			sprintf(string, "%ld", reponse.reponse_calcul);
+			ncurses_error_err(wprintw(messages, "%s\n", string), "Erreur affichaqe resultat dans fenetre.\n");
+			ncurses_error_err(wrefresh(messages), "Erreur refresh fenetre message apres ecriture dedans.\n");
 		} else
 			ncurses_error_err(ERR, "Erreur lecture du tube : aucun PID correspondant.\n");
 	}
 	ncurses_stopper();
+	free(string);
 	delwin(messages);
 	delwin(connexions);
 	delwin(fenetre);

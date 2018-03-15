@@ -5,10 +5,15 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <wait.h>
+#include <ncurses.h>
 #include "handlers.h"
 #include "ncurses.h"
 #include "constantes.h"
 
+/**
+ * À modifier pour permettre de finir le programme correctement.
+ * @param signal
+ */
 void handler_sigint(int signal) {
 	if (signal == SIGINT) {
 		ncurses_stopper();
@@ -62,5 +67,11 @@ void handler_connexion_int(int signo, siginfo_t* info, void* inutile) {
 			}
 		}
 		N = 0;
+	}
+}
+
+void handler_tache(int signo) {
+	if (signo == SIGINT) {
+		bool_tache = TRUE;
 	}
 }
